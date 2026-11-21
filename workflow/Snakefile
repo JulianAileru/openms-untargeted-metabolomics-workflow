@@ -1,0 +1,54 @@
+import csv 
+from pathlib import Path
+configfile: "config/config.yaml"
+
+with open(config["samplesheet"], newline="") as handle:
+    samplesheet = csv.DictReader(handle, delimiter="\t")
+    SAMPLES = [row["sample_name"].strip() for row in samplesheet]
+
+rule all:
+    input:
+        expand("data/mzml/{sample}.mzML", sample=SAMPLES),
+        expand("results/features/{sample}.featureXML",sample=SAMPLES),
+        expand("results/features/{sample}_features.tsv", sample=SAMPLES)
+
+rule detect_features:
+    input:
+        mzml="data/mzml/{sample}.mzML"
+    output:
+        features="results/features/{sample}.featureXML"
+    params:
+        mtd=config["mass_trace_detection"],
+        epd=config["elution_peak_detection"],
+        ffm=config['feature_finding_metabo']
+    script:
+        "scripts/detect_features.py"
+
+rule export_sample_features:
+    input:
+        features="results/features/{sample}.featureXML"
+    output:
+        table="results/features/{sample}_features.tsv"
+    script:
+        "scripts/export_sample_features.py"
+
+rule convert_raw:
+    input:
+        raw="data/raw/{sample}.raw"
+    output:
+        mzml="data/mzml/{sample}.mzML"
+    params:
+        mount=f"{Path('data').resolve()}:/data",
+        raw_in_container=lambda wildcards: f"/data/raw/{wildcards.sample}.raw"
+    shell:
+        """
+        mkdir -p data/mzml
+        docker run --rm --platform linux/amd64 \
+            -e WINEDEBUG=-all \
+            -v {params.mount:q} \
+            proteowizard/pwiz-skyline-i-agree-to-the-vendor-licenses \
+            wine msconvert {params.raw_in_container:q} \
+            --mzML --zlib \
+            --filter "peakPicking vendor msLevel=1-" \
+            -o /data/mzml
+        """

@@ -1,0 +1,44 @@
+samplesheet: "config/samples.tsv"
+
+# Parameter names match pyopenms 3.5.0 exactly. Unlisted values are OpenMS defaults.
+# OpenMS expects "true"/"false" as STRINGS — keep them quoted, or YAML turns them into booleans.
+
+mass_trace_detection:            # oms.MassTraceDetection
+  mass_error_ppm: 5.0            # allowed m/z deviation (ppm); default 20.0
+  noise_threshold_int: 10.       # drop peaks below this intensity; default 10.0
+  chrom_peak_snr: 3.0            # min S/N for a peak to be an apex
+  ion_mobility_tolerance: 0.01   # 1/k0; only relevant for ion mobility data
+  reestimate_mt_sd: "true"       # re-estimate m/z variance while collecting traces
+  quant_method: "area"           # area | median | max_height  (area for LC, median for direct injection)
+  trace_termination_criterion: "outlier"  # outlier | sample_rate
+  trace_termination_outliers: 5  # consecutive empty scans before a trace stops extending
+  min_sample_rate: 0.5           # min fraction of scans in a trace that contain a peak
+  min_trace_length: 5.0          # seconds
+  max_trace_length: -1.0         # seconds; negative = no maximum
+  max_traces: 0                  # NOT an OpenMS param: argument to run(); 0 = no limit
+
+elution_peak_detection:          # oms.ElutionPeakDetection
+  chrom_fwhm: 5.0                # expected chromatographic peak FWHM (s)
+  chrom_peak_snr: 3.0            # min S/N for a mass trace
+  width_filtering: "fixed"       # off | fixed | auto
+  min_fwhm: 1.0                  # s; used only when width_filtering = fixed
+  max_fwhm: 60.0                 # s; used only when width_filtering = fixed
+  masstrace_snr_filtering: "false"
+
+feature_finding_metabo:          # oms.FeatureFindingMetabo
+  local_rt_range: 10.0           # RT window (s) for co-eluting isotope traces
+  local_mz_range: 6.5            # m/z window for isotope traces
+  charge_lower_bound: 1
+  charge_upper_bound: 3
+  chrom_fwhm: 5.0                # keep in sync with elution_peak_detection.chrom_fwhm
+  report_summed_ints: "false"    # true = sum all isotope traces instead of monoisotopic only
+  enable_RT_filtering: "true"    # disable for direct injection
+  isotope_filtering_model: "metabolites (5% RMS)"  # metabolites (2% RMS) | metabolites (5% RMS) | peptides | none
+  mz_scoring_13C: "false"        # recommended "true" for lipidomics
+  use_smoothed_intensities: "true"
+  report_smoothed_intensities: "true"
+  report_convex_hulls: "false"   # true makes featureXML much larger
+  report_chromatograms: "false"
+  remove_single_traces: "false"  # true = drop features with no isotope partner
+  mz_scoring_by_elements: "false"
+  elements: "CHNOPS"
