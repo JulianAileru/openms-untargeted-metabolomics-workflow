@@ -1,4 +1,7 @@
 samplesheet: "config/samples.tsv"
+consensus_file_name: "consensus.consensusXML"
+final_feature_matrix: "feature_matrix.tsv"
+output_msp_file: "consensus_ms2.msp"
 
 # Parameter names match pyopenms 3.5.0 exactly. Unlisted values are OpenMS defaults.
 # OpenMS expects "true"/"false" as STRINGS — keep them quoted, or YAML turns them into booleans.
@@ -42,3 +45,174 @@ feature_finding_metabo:          # oms.FeatureFindingMetabo
   remove_single_traces: "false"  # true = drop features with no isotope partner
   mz_scoring_by_elements: "false"
   elements: "CHNOPS"
+
+map_alignment_pose_clustering:   # oms.MapAlignmentAlgorithmPoseClustering
+  reference_sample: "NIST_1"     # NOT an OpenMS param: which sample the others are aligned to
+  max_num_peaks_considered: -1   # -1 = all features; 1000 (the default) found no pairs on this data
+  superimposer:                  # step 1: estimate a rough RT shift + scaling between the two maps
+    mz_pair_max_distance: 0.5    # Da; max m/z difference for two features to vote for a shift
+    rt_pair_distance_fraction: 0.1  # pairs within a map must be at least this fraction of the RT range apart
+    num_used_points: 2000        # most intense features used for voting (lower = faster)
+    scaling_bucket_size: 0.005   # histogram resolution for the RT scaling
+    shift_bucket_size: 3.0       # s; histogram resolution for the RT shift
+    max_shift: 1000.0            # s; largest RT shift considered (both directions)
+    max_scaling: 2.0             # largest RT scaling considered (min is 1/max)
+    dump_buckets: ""             # [debug] file prefix to dump the histogram; "" = off
+    dump_pairs: ""               # [debug] file prefix to dump all voting pairs (large); "" = off
+  pairfinder:                    # step 2: pair features one-to-one to fit the RT transformation
+    second_nearest_gap: 2.0      # pair only if the 2nd-closest candidate is this many times farther away
+    use_identifications: "false" # peptide IDs; not used in metabolomics
+    ignore_charge: "false"       # "false" still pairs anything with charge 0 (unknown), which is most features
+    ignore_adduct: "true"
+    distance_RT:
+      max_difference: 100.0      # s; never pair features farther apart in RT
+      exponent: 1.0
+      weight: 1.0
+    distance_MZ:
+      max_difference: 10.0       # default is 0.3 Da; ppm suits high-resolution data
+      unit: "ppm"                # Da | ppm
+      exponent: 2.0
+      weight: 1.0
+    distance_intensity:
+      exponent: 1.0
+      weight: 0.0                # 0 = intensity doesn't influence pairing
+      log_transform: "disabled"  # enabled | disabled
+
+map_alignment_transformer:       # oms.MapAlignmentTransformer + the RT model it applies
+  store_original_rt: true        # keep each feature's pre-alignment RT as meta value "original_RT"
+  model:                         # fixed: PoseClustering fits an affine RT correction, rt' = slope * rt + intercept
+    type: "linear"               # only "linear" is supported
+    linear:                      # oms.TransformationModelLinear
+      symmetric_regression: "false"  # "true" = regress (y - x) on (y + x) instead of y on x
+      x_weight: "x"              # x | 1/x | 1/x2 | ln(x); "x" = unweighted
+      y_weight: "y"              # y | 1/y | 1/y2 | ln(y); "y" = unweighted
+
+metabolite_feature_deconvolution:   # oms.MetaboliteFeatureDeconvolution (adduct detection, per sample)
+  # negative_mode is set automatically from the mzML's polarity
+  charge_min: 1                     # write as positive; made negative automatically in negative mode
+  charge_max: 1                     # default 3; 1 is far faster (300 features: 0.2 s vs >5 min) and suits metabolites
+  charge_span_max: 1                # default 3
+  q_try: "feature"                  # feature | heuristic | all
+  retention_max_diff: 1.0           # s; adducts of one compound must co-elute within this
+  retention_max_diff_local: 1.0     # s
+  mass_max_diff: 0.05               # max m/z error when matching adduct mass differences
+  unit: "Da"                        # Da | ppm
+  potential_adducts:                # "element:charge:probability"; list used is chosen by the mzML's polarity
+                                    # probabilities of the CHARGED adducts in each list must sum to 1
+    positive:                       # OpenMS defaults
+      - "H:+:0.4"
+      - "Na:+:0.25"
+      - "NH4:+:0.25"
+      - "K:+:0.1"
+      - "H-2O-1:0:0.05"             # water loss (neutral)
+    negative:                       # suggested; tune for your mobile phase
+      - "H-1:-:0.8"                 # [M-H]-
+      - "Cl:-:0.1"                  # [M+Cl]-
+      - "CHO2:-:0.1"                # [M+HCOO]- (formate)
+  max_neutrals: 1
+  use_minority_bound: "true"
+  max_minority_bound: 3
+  min_rt_overlap: 0.66
+  intensity_filter: "false"
+  default_map_label: "decharged features"
+  verbose_level: 0
+
+feature_linking:                 # groups aligned features across samples into one ConsensusMap
+  algorithm: "FeatureGroupingAlgorithmKD"  # which block below is used:
+  # FeatureGroupingAlgorithmKD        - fast KD-tree linking, optional internal LOWESS RT warp (OpenMS default for metabolomics)
+  # FeatureGroupingAlgorithmQT        - quality-threshold clustering across all maps at once; slower, order-independent
+  # FeatureGroupingAlgorithmUnlabeled - links maps pairwise, one at a time onto a growing consensus
+  # FeatureGroupingAlgorithmLabeled   - pairs light/heavy features WITHIN one labeled sample (SILAC-style); not for label-free data
+
+  FeatureGroupingAlgorithmKD:
+    mz_unit: "ppm"               # ppm | Da; unit for warp:mz_tol and link:mz_tol
+    nr_partitions: 100           # m/z partitions (speed only)
+    warp:                        # optional LOWESS RT warp before linking (doesn't change reported RTs)
+      enabled: "true"            # set "false" to rely only on the affine PoseClustering correction
+      rt_tol: 100.0              # s
+      mz_tol: 5.0
+      max_pairwise_log_fc: 0.5   # max |log10 fold change| between features used for warping
+      min_rel_cc_size: 0.5       # feature groups must span at least this fraction of maps to guide warping
+      max_nr_conflicts: 0        # features from the same map allowed in one group (-1 = any)
+    link:
+      rt_tol: 30.0               # s; max RT difference for linking
+      mz_tol: 10.0
+      charge_merging: "With_charge_zero"   # Identical | With_charge_zero | Any
+      adduct_merging: "Any"                # Identical | With_unknown_adducts | Any
+    distance_RT:
+      exponent: 1.0
+      weight: 1.0
+    distance_MZ:
+      exponent: 2.0
+      weight: 1.0
+    distance_intensity:
+      exponent: 1.0
+      weight: 1.0                # KD uses intensity similarity by default (QT/Unlabeled don't)
+      log_transform: "enabled"   # enabled | disabled
+    LOWESS:                      # only used when warp:enabled = "true"
+      span: 0.6667
+      auto_span: "false"         # "true" = choose span by cross-validation
+      auto_span_min: 0.15
+      auto_span_max: 0.8
+      auto_min_neighbors: 5
+      auto_k_folds: 5
+      auto_metric: "mae"         # p90 | p95 | p99 | rmse | mae
+      auto_span_grid: ""         # e.g. "0.2,0.3,0.5"; "" = default grid
+      num_iterations: 3
+      delta: -1.0
+      interpolation_type: "cspline"            # linear | cspline | akima
+      extrapolation_type: "four-point-linear"  # two-point-linear | four-point-linear | global-linear
+
+  FeatureGroupingAlgorithmQT:
+    use_identifications: "false" # peptide IDs; not used in metabolomics
+    min_nr_diffs_per_bin: 50     # only used with identifications
+    min_IDscore_forTolCalc: 1.0  # only used with identifications
+    noID_penalty: 0.0            # only used with identifications
+    ignore_charge: "false"       # "false" still links charge-0 features with anything
+    ignore_adduct: "true"
+    distance_RT:
+      max_difference: 30.0       # s; default 100 - tighten after RT alignment
+      exponent: 1.0
+      weight: 1.0
+    distance_MZ:
+      max_difference: 10.0       # default 0.3 Da
+      unit: "ppm"                # Da | ppm
+      exponent: 2.0
+      weight: 1.0
+    distance_intensity:
+      exponent: 1.0
+      weight: 0.0
+      log_transform: "disabled"  # enabled | disabled
+
+  FeatureGroupingAlgorithmUnlabeled:
+    second_nearest_gap: 2.0      # link only if the 2nd-closest candidate is this many times farther away
+    use_identifications: "false"
+    ignore_charge: "false"
+    ignore_adduct: "true"
+    distance_RT:
+      max_difference: 30.0       # s; default 100
+      exponent: 1.0
+      weight: 1.0
+    distance_MZ:
+      max_difference: 10.0       # default 0.3 Da
+      unit: "ppm"
+      exponent: 2.0
+      weight: 1.0
+    distance_intensity:
+      exponent: 1.0
+      weight: 0.0
+      log_transform: "disabled"
+
+  FeatureGroupingAlgorithmLabeled: # label pairs within ONE map; listed for completeness
+    rt_estimate: "true"          # estimate light/heavy RT offset from the data
+    rt_pair_dist: -20.0          # s; expected RT offset light -> heavy
+    rt_dev_low: 15.0
+    rt_dev_high: 15.0
+    mz_pair_dists: [4.0]         # Th at charge 1; mass shift(s) of the label
+    mz_dev: 0.05
+    mrm: "false"
+
+ms2_pairing:                      # pairs each consensus feature with one MS2 spectrum -> MSP
+  mz_tolerance_ppm: 10.0          # precursor m/z must be within this of the feature m/z
+  rt_tolerance: 5.0               # s; MS2 scan must be within this of the feature's original (unaligned) RT
+                                  # among matches in all samples, the scan with the most intense precursor is kept

@@ -10,19 +10,8 @@ if TYPE_CHECKING:
     from snakemake.iocontainers import Snakemake
     snakemake: Snakemake
 
+from openms_utils import load_experiment, apply_params
 
-def load_experiment(path):
-    exp = oms.MSExperiment()
-    oms.MzMLFile().load(str(path), exp)
-    exp.sortSpectra(True)
-    return exp
-
-def apply_params(algo, settings, skip=()):
-    params = algo.getDefaults()
-    for name, value in settings.items():
-        if name not in skip:
-            params.setValue(name, value)
-    algo.setParameters(params)
 
 def mass_trace_detection(exp, settings):
     mtd = oms.MassTraceDetection()

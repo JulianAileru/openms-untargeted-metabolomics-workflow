@@ -3,6 +3,9 @@
 !.pixi/config.toml
 # ignore data directory
 data/*
-results/*
+results/adducts/*
+results/aligned/*
+results/consensus/*
+results/features/*
 # snakemake environment
 .snakemake/*

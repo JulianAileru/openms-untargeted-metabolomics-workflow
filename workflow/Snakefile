@@ -1,16 +1,74 @@
-import csv 
 from pathlib import Path
 configfile: "config/config.yaml"
 
-with open(config["samplesheet"], newline="") as handle:
-    samplesheet = csv.DictReader(handle, delimiter="\t")
-    SAMPLES = [row["sample_name"].strip() for row in samplesheet]
+include: "rules/common.smk"
 
 rule all:
     input:
         expand("data/mzml/{sample}.mzML", sample=SAMPLES),
         expand("results/features/{sample}.featureXML",sample=SAMPLES),
-        expand("results/features/{sample}_features.tsv", sample=SAMPLES)
+        expand("results/features/{sample}_features.tsv", sample=SAMPLES),
+        expand("results/aligned/{sample}_rt_aligned.featureXML", sample=SAMPLES),
+        expand("results/adducts/{sample}_adducts.featureXML", sample=SAMPLES),
+        f"results/consensus/{config['consensus_file_name']}",
+        f"results/final/{config['final_feature_matrix']}",
+        f"results/final/{config['output_msp_file']}"
+
+rule export_feature_matrix:
+    input:
+        consensus=f"results/consensus/{config['consensus_file_name']}"
+    output:
+        matrix=f"results/final/{config['final_feature_matrix']}"
+    script:
+        "scripts/export_feature_matrix.py"
+
+rule ms2_pairing:
+    input:
+        consensus=f"results/consensus/{config['consensus_file_name']}",
+        features=expand("results/adducts/{sample}_adducts.featureXML", sample=SAMPLES),
+        mzml=expand("data/mzml/{sample}.mzML", sample=SAMPLES)
+    params:
+        samples=SAMPLES,
+        ms2=config["ms2_pairing"]
+    output:
+        msp=f"results/final/{config['output_msp_file']}"
+    script:
+        "scripts/ms2_pairing.py"
+
+rule link_features:
+    input:
+        aligned_features=expand("results/adducts/{sample}_adducts.featureXML", sample=SAMPLES)
+    params:
+        samples=SAMPLES,
+        linking_settings=config["feature_linking"]
+    output:
+        consensus=f"results/consensus/{config['consensus_file_name']}"
+    script:
+        "scripts/link_features.py"
+
+rule detect_adducts:
+    input:
+        features="results/aligned/{sample}_rt_aligned.featureXML",
+        mzml="data/mzml/{sample}.mzML"  # read for ion polarity only
+    output:
+        features="results/adducts/{sample}_adducts.featureXML",
+        groups="results/adducts/{sample}_adduct_groups.consensusXML"
+    params:
+        mfd=config["metabolite_feature_deconvolution"]
+    script:
+        "scripts/detect_adducts.py"
+
+rule align_features:
+    input:
+        featureXML=expand("results/features/{sample}.featureXML", sample=SAMPLES)
+    output:
+        aligned=expand("results/aligned/{sample}_rt_aligned.featureXML", sample=SAMPLES)
+    params:
+        samples=SAMPLES,
+        aln=config["map_alignment_pose_clustering"],
+        trafo=config["map_alignment_transformer"]
+    script:
+        "scripts/align_features.py"
 
 rule detect_features:
     input:
