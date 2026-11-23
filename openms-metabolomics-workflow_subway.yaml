@@ -1,0 +1,42 @@
+# Starter slitherFlow spec generated from `snakemake --rulegraph`.
+# Rename stations, add tools/outputs, regroup lines and tune rows, then render with:
+#   slitherflow render this.yaml -o map.svg --png --pdf
+
+title: "openms-metabolomics-workflow"
+subtitle: "v1.0  ·  Snakemake"
+input: {label: "Input", sublabel: "", file: "RAW"}
+
+trunk:                      # steps every sample goes through
+  stations:
+    - {name: "Convert raw", tool: "", feeds: [{line: line1, station: "Detect adducts"}]}
+    - {name: "Detect features", tool: ""}
+    - {name: "Align features", tool: ""}
+  lines: [line1]   # top -> bottom on the trunk
+
+lines:
+  line1:
+    name: "Detect adducts"
+    row: -1            # negative = above the trunk
+    to: "terminus"
+    stations:
+      - {name: "Detect adducts", tool: ""}
+      - {name: "Link features", tool: ""}
+  side2:
+    name: "Export sample features"
+    from: "Detect features"
+    row: -1.6            # negative = above the trunk
+    optional: true         # dashed; delete if the step always runs
+    to: "none"
+    stations:
+      - {name: "Export sample features", tool: ""}
+  branch3:                    # branch of line1 (same colour and legend entry)
+    from: {line: line1, station: "Link features"}
+    row: -1.6            # negative = above the trunk
+    to: "none"
+    stations:
+      - {name: "Export feature matrix", tool: ""}
+
+# terminus: rule 'ms2_pairing', the end rule that collects from the most rules (3 inputs)
+terminus: {name: "Ms2 pairing", sublabel: "export MSP library", row: -1, file: "MSP"}
+
+footnote: ""
